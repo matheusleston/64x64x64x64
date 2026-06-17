@@ -1,0 +1,143 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>64x64x64x64</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #1a1a1a;
+  }
+  .wrap { display: grid; gap: 14px; justify-items: center; }
+  /* O painel: quadrado, sem bordas/sombra, como o LED físico. */
+  canvas {
+    width: 512px; height: 512px;
+    image-rendering: pixelated;
+    background: #000;
+  }
+  /* Controles preto-e-branco, blocados (cara de pixel art), sem texto. */
+  .panel { display: grid; gap: 10px; width: 512px; }
+  .ctl { display: grid; grid-template-columns: 1fr 28px; align-items: center; gap: 12px; }
+
+  /* Slider: trilha preta com borda branca + cursor branco retangular. */
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 28px; background: transparent; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 10px; background: #000; border: 2px solid #fff;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; border-radius: 0;
+    width: 10px; height: 22px; margin-top: -8px; background: #fff;
+  }
+  input[type=range]::-moz-range-track {
+    height: 10px; background: #000; border: 2px solid #fff;
+  }
+  input[type=range]::-moz-range-thumb {
+    border-radius: 0; border: none;
+    width: 10px; height: 22px; background: #fff;
+  }
+
+  /* Botões = encoders clicáveis: nunca ficam acesos, só feedback de clique. */
+  button {
+    appearance: none; cursor: pointer;
+    width: 28px; height: 28px;
+    background: #000; border: 2px solid #fff; border-radius: 0;
+  }
+  button:hover { background: #222; }
+  button:active { background: #444; }
+</style>
+
+<div class="wrap">
+  <canvas id="screen" width="64" height="64"></canvas>
+
+  <div class="panel">
+    <div class="ctl">
+      <input type="range" id="hue" min="0" max="255" value="0" />
+      <button id="hueBtn"></button>
+    </div>
+    <div class="ctl">
+      <input type="range" id="lum" min="127" max="255" value="127" />
+      <button id="lumBtn"></button>
+    </div>
+    <div class="ctl">
+      <input type="range" id="bright" min="0" max="255" value="255" />
+      <button id="brightBtn"></button>
+    </div>
+  </div>
+</div>
+
+<script src="viz.js"></script>
+<script>
+  createViz().then((Module) => {
+    const W = Module._viz_width();
+    const H = Module._viz_height();
+    const canvas = document.getElementById("screen");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(W, H);
+
+    // Semeia o padrão inicial com entropia do navegador.
+    Module._viz_seed((Date.now() ^ (Math.random() * 0x100000000)) >>> 0);
+
+    // --- Controles dos 4 encoders -------------------------------------------
+    const hue = document.getElementById("hue");
+    const lum = document.getElementById("lum");
+    const bright = document.getElementById("bright");
+
+    const syncHue = () => Module._viz_setHueBase(+hue.value);
+    const syncLum = () => Module._viz_setLumMax(+lum.value);
+    // Brilho (enc 3): no ESP isto vira panel.setBrightness(); aqui é só camada de
+    // display — escala o RGB de saída no canvas, sem tocar nas cores do efeito.
+    let brightFactor = 1;
+    const syncBright = () => { brightFactor = +bright.value / 255; };
+    syncHue(); syncLum(); syncBright();   // empurra os valores iniciais
+
+    // HUD procedural: surge/some por dithering no próprio painel enquanto um
+    // controle é mexido; some ~1.2s após a última mudança.
+    let hudTimer = 0;
+    const showHud = (label, value) => {
+      Module.stringToUTF8(label + "\n" + value, Module._viz_text(), 128);
+      Module._viz_setTextVisible(1);
+      clearTimeout(hudTimer);
+      hudTimer = setTimeout(() => Module._viz_setTextVisible(0), 1200);
+    };
+
+    hue.oninput = () => { syncHue(); showHud("MATIZ", hue.value); };
+    lum.oninput = () => { syncLum(); showHud("LUMINANCIA", lum.value); };
+    bright.oninput = () => { syncBright(); showHud("BRILHO", bright.value); };
+
+    // Os 3 encoders: enc1 = matiz (clique inverte), enc2 = luminância (clique
+    // alterna curva exp/linear), enc3 = brilho (clique gera novo desenho).
+    const hueBtn = document.getElementById("hueBtn");
+    const lumBtn = document.getElementById("lumBtn");
+    hueBtn.onclick = () => { Module._viz_toggleHueInvert(); hueBtn.classList.toggle("on");
+      showHud("MATIZ", hueBtn.classList.contains("on") ? "INVERTIDO" : "NORMAL"); };
+    lumBtn.onclick = () => { Module._viz_toggleHueCurve(); lumBtn.classList.toggle("on");
+      showHud("MATIZ", lumBtn.classList.contains("on") ? "LINEAR" : "EXPONENCIAL"); };
+    document.getElementById("brightBtn").onclick = () => { Module._viz_newPattern(); showHud("RANDOM", "DESENHO"); };
+
+    // --- Loop de render ------------------------------------------------------
+    let animFrame = 0;
+    let tick = 0;
+    const FRAMES_PER_STEP = 2;
+
+    function frame() {
+      const ptr = Module._viz_render(animFrame);
+      const src = Module.HEAPU8.subarray(ptr, ptr + W * H * 3);
+      const dst = img.data;
+      for (let i = 0, j = 0; i < W * H; i++, j += 3) {
+        dst[i * 4 + 0] = src[j + 0] * brightFactor;
+        dst[i * 4 + 1] = src[j + 1] * brightFactor;
+        dst[i * 4 + 2] = src[j + 2] * brightFactor;
+        dst[i * 4 + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0);
+
+      tick++;
+      if (tick % FRAMES_PER_STEP === 0) animFrame++;
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  });
+</script>

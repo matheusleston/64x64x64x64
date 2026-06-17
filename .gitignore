@@ -1,0 +1,10 @@
+# Lixo de SO / build local
+.DS_Store
+*.o
+*.dSYM/
+
+# Configuração local do Claude Code (não compartilhar)
+.claude/
+
+# IMPORTANTE: platform/web/viz.js e viz.wasm SÃO versionados de propósito
+# (o GitHub Pages serve estático; assim o CI não precisa de Emscripten).
