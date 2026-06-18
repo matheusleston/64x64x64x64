@@ -67,8 +67,26 @@ dither (8 frames) no canto inferior-esquerdo ao girar; o RANDOM não mostra text
 dither, seguram, somem por completo e SÓ ENTÃO a imagem entra por dither sobre o preto
 (in 16 / hold 90 / out 16 / imagem 16).
 
+## Próxima etapa: ESP (hardware)
+
+Objetivo: rodar o MESMO `core/` + `effects/` no ESP32 com painel HUB75 64×64, criando
+`platform/esp/` (espelho do papel do `platform/web/main.cpp`). Pontos-chave:
+
+- O harness do ESP roda o `loop()`, mantém o contador de `frame` e chama
+  `effect.render(fb, frame)`; depois empurra `fb` (RGB8) para o painel (lib tipo
+  `ESP32-HUB75-MatrixPanel-DMA`). Animação discreta por índice de frame, igual à web.
+- **Encoder único:** girar → brilho via `panel.setBrightness()` (NÃO mexe nas cores);
+  clicar → `g_effect.randomize()`. Semear com entropia do ESP (ex. `esp_random()`).
+- **Texto/boot:** reaproveitar `core/Font.h` + a lógica de cartela do `main.cpp` (fundo
+  azul, 3 linhas, `kPieceNo` — trocar a cada upload).
+- Efeitos não fazem alocação dinâmica (buffers são membros fixos) — ok para o ESP.
+- `core/` e `effects/` são compartilhados; no projeto do ESP (Arduino/PlatformIO),
+  incluí-los direto (ou como lib), **nunca duplicar/divergir**.
+
 ## Convenções de trabalho
 
 - **Propor em texto e esperar OK antes de implementar** mudanças de visual/algoritmo.
 - A cada marco aprovado: salvar `versions/vN/` + uma memória `project-vN-milestone`.
 - TODOs pendentes estão nas memórias `project-todo-*`.
+- **Novo chat = mesma pasta.** Abrir conversas nesta pasta (`64x64x64x64/`) carrega o
+  `CLAUDE.md` e as memórias automaticamente — todo o contexto vem junto.
