@@ -94,8 +94,6 @@
     document.getElementById("randomBtn").onclick = () => Module._viz_randomize();
 
     // --- Loop de render ------------------------------------------------------
-    // Frame lógico a 30 fps (2 ticks por passo). O movimento de cor é lento e
-    // contínuo dentro do efeito (kMoveSpeed em Gradient.h) — suave sem truques.
     let animFrame = 0;
     let tick = 0;
     const FRAMES_PER_STEP = 2;

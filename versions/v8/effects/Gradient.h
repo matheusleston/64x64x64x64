@@ -71,7 +71,7 @@ class Gradient : public Effect {
 
  private:
   static constexpr int kFadeFrames = 16;  // duração da transição (dither)
-  static constexpr int kStripes = 8;      // passadas de (resize + tarja)
+  static constexpr int kStripes = 4;      // passadas de (resize + tarja)
 
   // Parâmetros de cor sorteados. Cor é função do valor t de cada pixel.
   struct ColorParams {
@@ -211,31 +211,22 @@ class Gradient : public Effect {
     int n = 0;
     info_[0] = '\0';
     int W = kPanelW, H = kPanelH;          // forma atual da matriz (começa 64x64)
-    // Cada passada: transposição? resize? transposição? tarja? — cada um 50%.
     for (int k = 0; k < kStripes; ++k) {
-      maybeTranspose(cur, nxt, W, H, n);    // transposição (50%)
-      // redimensionamento (50%): reinterpreta os 4096 bytes numa nova forma W×H
-      // potência de 2, a em [2,10] => dims em [4,1024] (mín 4px) — sem mover dados.
-      if (std::rand() & 1) {
-        int a = 2 + std::rand() % 9;        // expoente: W = 2^a em [4,1024]
-        W = 1 << a; H = kPixels / W;
-        char rb[16];
-        std::snprintf(rb, sizeof(rb), "%dx%d ", W, H);
-        appendInfo(n, rb);
-      } else {
-        appendInfo(n, "r- ");
-      }
-      maybeTranspose(cur, nxt, W, H, n);    // transposição (50%)
-      // tarjas (50%): divide H em N tarjas (N <= H/2, mín 2 linhas/tarja).
-      if (std::rand() & 1) {
-        char label[24];
-        applyStripes(cur, nxt, W, H, label, sizeof(label));
-        uint8_t* t = cur; cur = nxt; nxt = t;
-        appendInfo(n, label);
-        appendInfo(n, " ");
-      } else {
-        appendInfo(n, "t- ");
-      }
+      maybeTranspose(cur, nxt, W, H, n);    // transposição antes do resize
+      // redimensionamento: reinterpreta o buffer 4096 numa nova resolução W×H
+      // (potência de 2) — sem mover dados (jit.scanwrap em ordem de linhas).
+      // a em [2,10] => W e H ambos em [4,1024]: mín 4px (cabe 2 tarjas de 2 linhas).
+      int a = 2 + std::rand() % 9;          // expoente: W = 2^a em [4,1024]
+      W = 1 << a; H = kPixels / W;
+      char rb[16];
+      std::snprintf(rb, sizeof(rb), "%dx%d ", W, H);
+      appendInfo(n, rb);
+      maybeTranspose(cur, nxt, W, H, n);    // transposição antes da tarja
+      char label[24];
+      applyStripes(cur, nxt, W, H, label, sizeof(label));
+      uint8_t* t = cur; cur = nxt; nxt = t;
+      appendInfo(n, label);
+      appendInfo(n, " ");
     }
     // resolução original: o display lê tableNew_ como 64x64 (dados já são 4096).
     for (int i = 0; i < kPixels; ++i) tableNew_[i] = cur[i];

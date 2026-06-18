@@ -26,7 +26,7 @@ Depois de qualquer edição em `effects/` ou `core/`: rodar `./build_web.sh` e h
 - `platform/web/` — `main.cpp` (ponte Emscripten, expõe `viz_*`; faz o boot/splash
   e desenha o HUD por cima do efeito), `index.html` (canvas + UI), `build_web.sh`.
   No futuro haverá `platform/esp/` reaproveitando `core/` e `effects/`.
-- `versions/v1…v7/` — snapshots aprovados (copiar de volta para restaurar; v7 espelha
+- `versions/v1…v9/` — snapshots aprovados (copiar de volta para restaurar; v7+ espelham
   a árvore: `core/ effects/ platform/web/ build_web.sh`).
 
 Fronteira sagrada: efeitos desenham num framebuffer 64×64; o display final mapeia
@@ -36,30 +36,36 @@ o valor da célula para cor. A movimentação é `(tabela - frame) % 256`.
 pixel; ao crescer `reveal` só acendem pixels novos, ao diminuir só somem (não piscam).
 É a transição padrão de tudo: texto/HUD, boot e as transições do efeito.
 
-## Estado atual (v7) — efeito `Gradient`
+## Estado atual (v9) — efeito `Gradient` (TOTALMENTE RANDÔMICO)
 
-**Padrão (tabela):** base = gradiente `x*4` + noise; pipeline `[T?] resize [T?] tarja`
-×4 (resize = reinterpretar o buffer 4096 em W×H potência de 2, estilo jit.scanwrap;
-tarja divide H em N tarjas com deslocamento/inversão), volta a 64×64. Trocar o
-desenho (`newPattern`) faz transição por **dither** de 16 frames (`tableOld_`→`tableNew_`).
+**Um único "encoder":** girar = **brilho** (0–100%, camada de display: no ESP
+`panel.setBrightness()`, na web o JS escala o RGB de saída — NÃO mexe nas cores);
+clicar = **`randomize()`** (sorteia desenho + cor de uma vez). Na UI: 1 slider + 1 botão.
+Exports: `viz_seed, viz_randomize, viz_text, viz_setTextVisible`.
 
-**Cor (HSL), 3 "encoders"** (UI = 3 sliders + 3 botões pretos; no ESP serão encoders
-clicáveis que chamam os mesmos setters). `t = valor/255`, `te = t²`:
-- **Enc 1 Matiz:** slider 0–255 = máx do hue (`hueBase=(v+32)/256`); clique = inverter (dither).
-- **Enc 2 Luminância:** slider 127–255 = máx de L (`lumMax=v/255`); clique = curva exp/linear (dither).
-- **Enc 3 Brilho:** slider 0–255 = brilho do painel (só display — no ESP `panel.setBrightness()`,
-  na web escala o RGB de saída no canvas, NÃO mexe nas cores); clique = novo desenho.
-- `hue = hueBase - hueRange*(1-hShaped)`; `S=1`; `L = lumMax*te`. **`hueRange` é FIXO em 128/255.**
+**Padrão (tabela):** base = gradiente `x*4` + noise; pipeline repetido **×`kStripes` (=8)**.
+Cada passada faz `transposição? → resize? → transposição? → tarja?`, **cada sub-passo com
+50% de chance** (`std::rand()&1`). resize = reinterpretar o buffer 4096 em W×H potência de
+2 (`a∈[2,10]` ⇒ dims em [4,1024], mín 4px); tarja divide H em N tarjas (`N≤H/2` ⇒ mín 2
+linhas/tarja). No fim os 4096 bytes são relidos como 64×64 (sem mover dados).
 
-Os dois toggles (inverter/curva) usam o struct `Toggle` (transição por dither, 16 frames).
+**Cor randômica** (`ColorParams` sorteado em `randomParams()`; cor é função de `t=v/255`,
+`te=t²`):
+- **Matiz:** sub-range `[lo,hi]` dentro de `[0.35,1.15]` (sem verde), largura ≥ 50% do
+  span; sentido invertível; curva linear ou exp. `hue = lo + (hi−lo)·forma(t)`.
+- **Saturação:** máx sempre 1, mín sorteado `[0,1]`; curva lin/exp; **nunca invertida**.
+- **Luminância:** sempre exp, mín 0, máx sorteado `[0.5,1]`; nunca invertida. `L=lMax·t²`.
 
-Setters: `setHueBase, toggleHueInvert, toggleHueCurve, setLumMax, newPattern`. Brilho é
-só JS. Texto/HUD: `viz_text()` (buffer) + `viz_setTextVisible(0/1)`.
+`randomize()` troca desenho **e** cor juntos numa só transição por **dither** de 16 frames
+(`tableOld_/colorOld_` → `tableNew_/colorNew_`; re-clique conclui a anterior na hora). Ao
+dar `seed()` já cai num estado randômico.
 
-**Texto:** fonte 4×6 (`core/Font.h`). HUD procedural no canto inferior-esquerdo (2 linhas,
-label/valor) surge/some por dither ao mexer num controle. Boot (`main.cpp`): título
-`LESTON`/`64x64x64x64` surge por dither, segura, some por completo e SÓ ENTÃO a imagem
-entra por dither.
+**Texto:** fonte 4×6 (`core/Font.h`). HUD (só do **brilho**) `BRILHO N%` surge/some por
+dither (8 frames) no canto inferior-esquerdo ao girar; o RANDOM não mostra texto. Boot
+(`main.cpp`): cartela 3 linhas `LESTON`/`64x64x64x64`/`2026 #N` — `N` = `kPieceNo`
+(constante no topo, **trocar a cada upload**). Fundo **azul** + título surgem juntos por
+dither, seguram, somem por completo e SÓ ENTÃO a imagem entra por dither sobre o preto
+(in 16 / hold 90 / out 16 / imagem 16).
 
 ## Convenções de trabalho
 
